@@ -130,7 +130,7 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 # YouTube API Key
-YOUTUBE_API_KEY = env('YOUTUBE_API_KEY', default='your-youtube-api-key')
+YOUTUBE_API_KEY = env('YOUTUBE_API_KEY', default='AIzaSyDJG6KsRQtU_RSZfun_nqEJRaWgDO1XQ6g')
 
 # Media settings for file uploads
 MEDIA_URL = '/media/'
