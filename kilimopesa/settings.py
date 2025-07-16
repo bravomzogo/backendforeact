@@ -56,7 +56,7 @@ MIDDLEWARE = [
 
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
-    'https://kilimopesa.onrender.com/'
+    'https://kilimopesa.onrender.com'
 ]
 
 ROOT_URLCONF = 'kilimopesa.urls'
