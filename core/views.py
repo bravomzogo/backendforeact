@@ -12,6 +12,11 @@ from .serializers import (
     CategorySerializer, ProductSerializer, LandSerializer,
     InputSerializer, ServiceSerializer, VideoSerializer
 )
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
+
+
 
 class RegisterView(APIView):
     def post(self, request):
@@ -22,31 +27,37 @@ class RegisterView(APIView):
             # Generate verification code
             verification_code = user.generate_verification_code()
             
-            # Send email
+            # Prepare email content
             subject = 'Verify Your KilimoPesa Account'
-            message = f"""
-            Hello {user.username},
+            html_message = render_to_string('email/verification_email.html', {
+                'username': user.username,
+                'verification_code': verification_code,
+            })
+            plain_message = strip_tags(html_message)
             
-            Your verification code is: {verification_code}
-            
-            Enter this code in the app to complete your registration.
-            
-            The KilimoPesa Team
-            """
-            
-            send_mail(
-                subject,
-                message,
-                settings.DEFAULT_FROM_EMAIL,
-                [user.email],
-                fail_silently=False,
-            )
-            
-            return Response({
-                'message': 'Verification code sent to your email',
-                'email': user.email,
-                'username': user.username
-            }, status=status.HTTP_201_CREATED)
+            try:
+                send_mail(
+                    subject,
+                    plain_message,
+                    settings.DEFAULT_FROM_EMAIL,
+                    [user.email],
+                    html_message=html_message,
+                    fail_silently=False,
+                )
+                
+                return Response({
+                    'message': 'Verification code sent to your email',
+                    'email': user.email,
+                    'username': user.username
+                }, status=status.HTTP_201_CREATED)
+                
+            except Exception as e:
+                user.delete()
+                return Response(
+                    {'error': f'Failed to send verification email: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class VerifyEmailView(APIView):
@@ -54,19 +65,99 @@ class VerifyEmailView(APIView):
         serializer = VerifyEmailSerializer(data=request.data)
         if serializer.is_valid():
             email = serializer.validated_data['email']
-            code = serializer.validated_data['code']
+            code = serializer.validated_data['code'].strip()
             
             try:
                 user = User.objects.get(email=email)
+                
+                if user.is_email_verified:
+                    return Response(
+                        {'error': 'Email is already verified'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                if not user.verification_code:
+                    return Response(
+                        {'error': 'No verification code exists for this user'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
                 if user.verification_code == code:
                     user.is_email_verified = True
                     user.verification_code = None
                     user.save()
-                    return Response({'message': 'Email verified successfully'}, status=status.HTTP_200_OK)
-                return Response({'error': 'Invalid verification code'}, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    # Generate tokens for automatic login
+                    refresh = RefreshToken.for_user(user)
+                    
+                    return Response({
+                        'message': 'Email verified successfully',
+                        'access': str(refresh.access_token),
+                        'refresh': str(refresh),
+                        'user': UserSerializer(user).data
+                    }, status=status.HTTP_200_OK)
+                
+                return Response(
+                    {'error': 'Invalid verification code'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
             except User.DoesNotExist:
-                return Response({'error': 'User with this email does not exist'}, status=status.HTTP_404_NOT_FOUND)
+                return Response(
+                    {'error': 'User with this email does not exist'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ResendVerificationView(APIView):
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return Response(
+                {'error': 'Email is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            user = User.objects.get(email=email)
+            
+            if user.is_email_verified:
+                return Response(
+                    {'error': 'Email is already verified'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            # Generate new code
+            verification_code = user.generate_verification_code()
+            
+            # Prepare email content
+            subject = 'Your New Verification Code'
+            html_message = render_to_string('email/verification_email.html', {
+                'username': user.username,
+                'verification_code': verification_code,
+            })
+            plain_message = strip_tags(html_message)
+            
+            send_mail(
+                subject,
+                plain_message,
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+                html_message=html_message,
+                fail_silently=False,
+            )
+            
+            return Response({
+                'message': 'New verification code sent',
+                'email': user.email
+            }, status=status.HTTP_200_OK)
+            
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User with this email does not exist'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 class UserDetail(APIView):
     permission_classes = [IsAuthenticated]

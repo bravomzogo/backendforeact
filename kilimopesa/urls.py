@@ -11,6 +11,11 @@ from core.views import (
     VideoList, VideoDetail, VideoYouTubeSearch,    RegisterView, VerifyEmailView, UserDetail,
 )
 
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('register/', RegisterView.as_view(), name='register'),
@@ -29,4 +34,6 @@ urlpatterns = [
     path('api/videos/', VideoList.as_view(), name='video-list'),
     path('api/videos/<int:pk>/', VideoDetail.as_view(), name='video-detail'),
     path('api/videos/youtube_search/', VideoYouTubeSearch.as_view(), name='video-youtube-search'),
+    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
