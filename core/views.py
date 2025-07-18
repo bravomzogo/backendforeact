@@ -12,6 +12,7 @@ from .serializers import (
     CategorySerializer, ProductSerializer, LandSerializer,
     InputSerializer, ServiceSerializer, VideoSerializer
 )
+from rest_framework_simplejwt.tokens import RefreshToken
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 
@@ -59,8 +60,6 @@ class RegisterView(APIView):
                 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-from django.contrib.auth import login
-
 class VerifyEmailView(APIView):
     def post(self, request):
         serializer = VerifyEmailSerializer(data=request.data)
@@ -70,19 +69,33 @@ class VerifyEmailView(APIView):
             
             try:
                 user = User.objects.get(email=email)
+                
+                if user.is_email_verified:
+                    return Response(
+                        {'error': 'Email is already verified'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                if not user.verification_code:
+                    return Response(
+                        {'error': 'No verification code exists for this user'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
                 if user.verification_code == code:
                     user.is_email_verified = True
                     user.verification_code = None
                     user.save()
                     
-                    # Log the user in using session authentication
-                    login(request, user)
+                    # Generate tokens for automatic login
+                    refresh = RefreshToken.for_user(user)
                     
                     return Response({
                         'message': 'Email verified successfully',
+                        'access': str(refresh.access_token),
+                        'refresh': str(refresh),
                         'user': UserSerializer(user).data
                     }, status=status.HTTP_200_OK)
-                
                 
                 return Response(
                     {'error': 'Invalid verification code'},
