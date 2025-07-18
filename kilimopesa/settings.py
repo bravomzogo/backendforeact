@@ -159,8 +159,7 @@ EMAIL_HOST_PASSWORD = 'lhzv ktto mrsw ebxg'  # The 16-char app password
 DEFAULT_FROM_EMAIL = 'KilimoPesa <bravomzogo@gmail.com>'  # Customize this
 
 # For development/testing - comment this out in production
-if DEBUG:
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
 
 
 
