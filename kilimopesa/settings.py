@@ -147,4 +147,21 @@ AUTH_USER_MODEL = 'core.User'  # Assuming your app is named 'core'
 
 
 
+# In your settings.py (kilimopesa/settings.py)
+
+# Email Configuration (add this to your existing settings)
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'bravomzogo@gmail.com'  # Your Gmail address
+EMAIL_HOST_PASSWORD = 'lhzv ktto mrsw ebxg'  # The 16-char app password
+DEFAULT_FROM_EMAIL = 'KilimoPesa <bravomzogo@gmail.com>'  # Customize this
+
+# For development/testing - comment this out in production
+if DEBUG:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+
+
 

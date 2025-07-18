@@ -19,18 +19,33 @@ class RegisterView(APIView):
         if serializer.is_valid():
             user = serializer.save()
             
-            # Send verification email
+            # Generate verification code
+            verification_code = user.generate_verification_code()
+            
+            # Send email
+            subject = 'Verify Your KilimoPesa Account'
+            message = f"""
+            Hello {user.username},
+            
+            Your verification code is: {verification_code}
+            
+            Enter this code in the app to complete your registration.
+            
+            The KilimoPesa Team
+            """
+            
             send_mail(
-                'Verify Your Email - KilimoPesa',
-                f'Your verification code is: {user.verification_code}',
+                subject,
+                message,
                 settings.DEFAULT_FROM_EMAIL,
                 [user.email],
                 fail_silently=False,
             )
             
             return Response({
-                'message': 'User registered successfully. Please check your email for verification code.',
-                'user': UserSerializer(user).data
+                'message': 'Verification code sent to your email',
+                'email': user.email,
+                'username': user.username
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
