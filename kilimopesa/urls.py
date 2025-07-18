@@ -8,11 +8,14 @@ from core.views import (
     LandList, LandDetail,
     InputList, InputDetail,
     ServiceList, ServiceDetail,
-    VideoList, VideoDetail, VideoYouTubeSearch
+    VideoList, VideoDetail, VideoYouTubeSearch,    RegisterView, VerifyEmailView, UserDetail,
 )
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('register/', RegisterView.as_view(), name='register'),
+    path('verify-email/', VerifyEmailView.as_view(), name='verify-email'),
+    path('user/', UserDetail.as_view(), name='user-detail'),
     path('api/categories/', CategoryList.as_view(), name='category-list'),
     path('api/categories/<int:pk>/', CategoryDetail.as_view(), name='category-detail'),
     path('api/products/', ProductList.as_view(), name='product-list'),

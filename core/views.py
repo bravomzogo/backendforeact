@@ -1,59 +1,64 @@
+import requests
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
-import requests
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from django.core.mail import send_mail
 from django.conf import settings
-from .models import Category, Product, Land, Input, Service, Video
-from .serializers import CategorySerializer, ProductSerializer, LandSerializer, InputSerializer, ServiceSerializer, VideoSerializer
+from django.shortcuts import get_object_or_404
+from .models import User, Category, Product, Land, Input, Service, Video
+from .serializers import (
+    RegisterSerializer, VerifyEmailSerializer, UserSerializer,
+    CategorySerializer, ProductSerializer, LandSerializer,
+    InputSerializer, ServiceSerializer, VideoSerializer
+)
 
-class CategoryList(APIView):
-    permission_classes = [IsAuthenticatedOrReadOnly]
-
-    def get(self, request):
-        categories = Category.objects.all()
-        serializer = CategorySerializer(categories, many=True)
-        return Response(serializer.data)
-
+class RegisterView(APIView):
     def post(self, request):
-        serializer = CategorySerializer(data=request.data)
+        serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            user = serializer.save()
+            
+            # Send verification email
+            send_mail(
+                'Verify Your Email - KilimoPesa',
+                f'Your verification code is: {user.verification_code}',
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+                fail_silently=False,
+            )
+            
+            return Response({
+                'message': 'User registered successfully. Please check your email for verification code.',
+                'user': UserSerializer(user).data
+            }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class CategoryDetail(APIView):
-    permission_classes = [IsAuthenticatedOrReadOnly]
+class VerifyEmailView(APIView):
+    def post(self, request):
+        serializer = VerifyEmailSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            code = serializer.validated_data['code']
+            
+            try:
+                user = User.objects.get(email=email)
+                if user.verification_code == code:
+                    user.is_email_verified = True
+                    user.verification_code = None
+                    user.save()
+                    return Response({'message': 'Email verified successfully'}, status=status.HTTP_200_OK)
+                return Response({'error': 'Invalid verification code'}, status=status.HTTP_400_BAD_REQUEST)
+            except User.DoesNotExist:
+                return Response({'error': 'User with this email does not exist'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def get_object(self, pk):
-        try:
-            return Category.objects.get(pk=pk)
-        except Category.DoesNotExist:
-            return None
-
-    def get(self, request, pk):
-        category = self.get_object(pk)
-        if category is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        serializer = CategorySerializer(category)
+class UserDetail(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        serializer = UserSerializer(request.user)
         return Response(serializer.data)
-
-    def put(self, request, pk):
-        category = self.get_object(pk)
-        if category is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        serializer = CategorySerializer(category, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, pk):
-        category = self.get_object(pk)
-        if category is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        category.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
 class ProductList(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -66,7 +71,7 @@ class ProductList(APIView):
     def post(self, request):
         serializer = ProductSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(farmer=request.user)
+            serializer.save(user=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -74,32 +79,30 @@ class ProductDetail(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_object(self, pk):
-        try:
-            return Product.objects.get(pk=pk)
-        except Product.DoesNotExist:
-            return None
+        return get_object_or_404(Product, pk=pk)
 
     def get(self, request, pk):
         product = self.get_object(pk)
-        if product is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
         serializer = ProductSerializer(product)
         return Response(serializer.data)
 
     def put(self, request, pk):
         product = self.get_object(pk)
-        if product is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        serializer = ProductSerializer(product, data=request.data)
+        serializer = ProductSerializer(product, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save(farmer=request.user)
+            # Ensure the user can only update their own products
+            if product.user != request.user:
+                return Response({'error': 'You do not have permission to update this product'}, 
+                              status=status.HTTP_403_FORBIDDEN)
+            serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
         product = self.get_object(pk)
-        if product is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        if product.user != request.user:
+            return Response({'error': 'You do not have permission to delete this product'}, 
+                          status=status.HTTP_403_FORBIDDEN)
         product.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -114,7 +117,7 @@ class LandList(APIView):
     def post(self, request):
         serializer = LandSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(owner=request.user)
+            serializer.save(user=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -122,32 +125,29 @@ class LandDetail(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_object(self, pk):
-        try:
-            return Land.objects.get(pk=pk)
-        except Land.DoesNotExist:
-            return None
+        return get_object_or_404(Land, pk=pk)
 
     def get(self, request, pk):
         land = self.get_object(pk)
-        if land is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
         serializer = LandSerializer(land)
         return Response(serializer.data)
 
     def put(self, request, pk):
         land = self.get_object(pk)
-        if land is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        serializer = LandSerializer(land, data=request.data)
+        serializer = LandSerializer(land, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save(owner=request.user)
+            if land.user != request.user:
+                return Response({'error': 'You do not have permission to update this land'}, 
+                              status=status.HTTP_403_FORBIDDEN)
+            serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
         land = self.get_object(pk)
-        if land is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        if land.user != request.user:
+            return Response({'error': 'You do not have permission to delete this land'}, 
+                          status=status.HTTP_403_FORBIDDEN)
         land.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -162,7 +162,7 @@ class InputList(APIView):
     def post(self, request):
         serializer = InputSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(seller=request.user)
+            serializer.save(user=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -170,32 +170,29 @@ class InputDetail(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_object(self, pk):
-        try:
-            return Input.objects.get(pk=pk)
-        except Input.DoesNotExist:
-            return None
+        return get_object_or_404(Input, pk=pk)
 
     def get(self, request, pk):
         input_item = self.get_object(pk)
-        if input_item is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
         serializer = InputSerializer(input_item)
         return Response(serializer.data)
 
     def put(self, request, pk):
         input_item = self.get_object(pk)
-        if input_item is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        serializer = InputSerializer(input_item, data=request.data)
+        serializer = InputSerializer(input_item, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save(seller=request.user)
+            if input_item.user != request.user:
+                return Response({'error': 'You do not have permission to update this input'}, 
+                              status=status.HTTP_403_FORBIDDEN)
+            serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
         input_item = self.get_object(pk)
-        if input_item is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        if input_item.user != request.user:
+            return Response({'error': 'You do not have permission to delete this input'}, 
+                          status=status.HTTP_403_FORBIDDEN)
         input_item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -210,7 +207,7 @@ class ServiceList(APIView):
     def post(self, request):
         serializer = ServiceSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(provider=request.user)
+            serializer.save(user=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -218,32 +215,29 @@ class ServiceDetail(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_object(self, pk):
-        try:
-            return Service.objects.get(pk=pk)
-        except Service.DoesNotExist:
-            return None
+        return get_object_or_404(Service, pk=pk)
 
     def get(self, request, pk):
         service = self.get_object(pk)
-        if service is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
         serializer = ServiceSerializer(service)
         return Response(serializer.data)
 
     def put(self, request, pk):
         service = self.get_object(pk)
-        if service is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        serializer = ServiceSerializer(service, data=request.data)
+        serializer = ServiceSerializer(service, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save(provider=request.user)
+            if service.user != request.user:
+                return Response({'error': 'You do not have permission to update this service'}, 
+                              status=status.HTTP_403_FORBIDDEN)
+            serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
         service = self.get_object(pk)
-        if service is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        if service.user != request.user:
+            return Response({'error': 'You do not have permission to delete this service'}, 
+                          status=status.HTTP_403_FORBIDDEN)
         service.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -258,7 +252,7 @@ class VideoList(APIView):
     def post(self, request):
         serializer = VideoSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(added_by=request.user)
+            serializer.save(user=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -266,34 +260,50 @@ class VideoDetail(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_object(self, pk):
-        try:
-            return Video.objects.get(pk=pk)
-        except Video.DoesNotExist:
-            return None
+        return get_object_or_404(Video, pk=pk)
 
     def get(self, request, pk):
         video = self.get_object(pk)
-        if video is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
         serializer = VideoSerializer(video)
         return Response(serializer.data)
 
     def put(self, request, pk):
         video = self.get_object(pk)
-        if video is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        serializer = VideoSerializer(video, data=request.data)
+        serializer = VideoSerializer(video, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save(added_by=request.user)
+            if video.user != request.user:
+                return Response({'error': 'You do not have permission to update this video'}, 
+                              status=status.HTTP_403_FORBIDDEN)
+            serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
         video = self.get_object(pk)
-        if video is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        if video.user != request.user:
+            return Response({'error': 'You do not have permission to delete this video'}, 
+                          status=status.HTTP_403_FORBIDDEN)
         video.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+class CategoryList(APIView):
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get(self, request):
+        categories = Category.objects.all()
+        serializer = CategorySerializer(categories, many=True)
+        return Response(serializer.data)
+
+class CategoryDetail(APIView):
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get_object(self, pk):
+        return get_object_or_404(Category, pk=pk)
+
+    def get(self, request, pk):
+        category = self.get_object(pk)
+        serializer = CategorySerializer(category)
+        return Response(serializer.data)
 
 class VideoYouTubeSearch(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
