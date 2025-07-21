@@ -8,19 +8,20 @@ from core.views import (
     LandList, LandDetail,
     InputList, InputDetail,
     ServiceList, ServiceDetail,
-    VideoList, VideoDetail, VideoYouTubeSearch,    RegisterView, VerifyEmailView, UserDetail,
-)
-
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
+    VideoList, VideoDetail,
+    VideoYouTubeSearch,
+    RegisterView, VerifyEmailView, LoginView, LogoutView, UserDetail,
+    ResendVerificationView
 )
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('register/', RegisterView.as_view(), name='register'),
-    path('verify-email/', VerifyEmailView.as_view(), name='verify-email'),
-    path('user/', UserDetail.as_view(), name='user-detail'),
+    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/verify-email/', VerifyEmailView.as_view(), name='verify-email'),
+    path('api/login/', LoginView.as_view(), name='login'),
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/resend-verification/', ResendVerificationView.as_view(), name='resend-verification'),
+    path('api/user/', UserDetail.as_view(), name='user-detail'),
     path('api/categories/', CategoryList.as_view(), name='category-list'),
     path('api/categories/<int:pk>/', CategoryDetail.as_view(), name='category-detail'),
     path('api/products/', ProductList.as_view(), name='product-list'),
@@ -34,6 +35,4 @@ urlpatterns = [
     path('api/videos/', VideoList.as_view(), name='video-list'),
     path('api/videos/<int:pk>/', VideoDetail.as_view(), name='video-detail'),
     path('api/videos/youtube_search/', VideoYouTubeSearch.as_view(), name='video-youtube-search'),
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

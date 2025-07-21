@@ -1,30 +1,27 @@
-import requests
+from django.contrib.auth import authenticate, login, logout
+from django.core.mail import send_mail
+from django.conf import settings
+from django.shortcuts import get_object_or_404
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
-from django.core.mail import send_mail
-from django.conf import settings
-from django.shortcuts import get_object_or_404
 from .models import User, Category, Product, Land, Input, Service, Video
 from .serializers import (
     RegisterSerializer, VerifyEmailSerializer, UserSerializer,
     CategorySerializer, ProductSerializer, LandSerializer,
     InputSerializer, ServiceSerializer, VideoSerializer
 )
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.template.loader import render_to_string
-from django.utils.html import strip_tags
-
-
+import requests
 
 class RegisterView(APIView):
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            
-            # Generate verification code
+            user.is_active = False  # User can't login until email is verified
             verification_code = user.generate_verification_code()
             
             # Prepare email content
@@ -84,16 +81,15 @@ class VerifyEmailView(APIView):
                 
                 if user.verification_code == code:
                     user.is_email_verified = True
+                    user.is_active = True
                     user.verification_code = None
                     user.save()
                     
-                    # Generate tokens for automatic login
-                    refresh = RefreshToken.for_user(user)
+                    # Log the user in
+                    login(request, user)
                     
                     return Response({
                         'message': 'Email verified successfully',
-                        'access': str(refresh.access_token),
-                        'refresh': str(refresh),
                         'user': UserSerializer(user).data
                     }, status=status.HTTP_200_OK)
                 
@@ -109,6 +105,46 @@ class VerifyEmailView(APIView):
                 )
                 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class LoginView(APIView):
+    def post(self, request):
+        email = request.data.get('email')
+        password = request.data.get('password')
+        
+        if not email or not password:
+            return Response(
+                {'error': 'Email and password are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        user = authenticate(request, email=email, password=password)
+        
+        if user is None:
+            return Response(
+                {'error': 'Invalid credentials'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+            
+        if not user.is_email_verified:
+            return Response(
+                {'error': 'Please verify your email first'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        login(request, user)
+        return Response({
+            'message': 'Login successful',
+            'user': UserSerializer(user).data
+        }, status=status.HTTP_200_OK)
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        logout(request)
+        return Response({
+            'message': 'Logged out successfully'
+        }, status=status.HTTP_200_OK)
 
 class ResendVerificationView(APIView):
     def post(self, request):
@@ -128,10 +164,8 @@ class ResendVerificationView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
                 
-            # Generate new code
             verification_code = user.generate_verification_code()
             
-            # Prepare email content
             subject = 'Your New Verification Code'
             html_message = render_to_string('email/verification_email.html', {
                 'username': user.username,
@@ -196,7 +230,6 @@ class ProductDetail(APIView):
         product = self.get_object(pk)
         serializer = ProductSerializer(product, data=request.data, partial=True)
         if serializer.is_valid():
-            # Ensure the user can only update their own products
             if product.user != request.user:
                 return Response({'error': 'You do not have permission to update this product'}, 
                               status=status.HTTP_403_FORBIDDEN)
@@ -428,8 +461,3 @@ class VideoYouTubeSearch(APIView):
         if response.status_code == 200:
             return Response(response.json())
         return Response({'error': 'Failed to fetch YouTube videos'}, status=response.status_code)
-    
-
-
-
-    
