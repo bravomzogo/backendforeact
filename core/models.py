@@ -1,3 +1,4 @@
+# core/models.py
 from django.db import models
 from django.contrib.auth.models import AbstractUser, Group, Permission
 from django.utils.crypto import get_random_string
@@ -7,7 +8,6 @@ class User(AbstractUser):
     is_email_verified = models.BooleanField(default=False)
     verification_code = models.CharField(max_length=6, blank=True, null=True)
     
-    # Custom related_name to avoid clashes with auth.User
     groups = models.ManyToManyField(
         Group,
         verbose_name='groups',

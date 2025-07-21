@@ -1,3 +1,4 @@
+# core/views.py
 from django.contrib.auth import authenticate, login, logout
 from django.core.mail import send_mail
 from django.conf import settings
@@ -14,10 +15,14 @@ from .serializers import (
     CategorySerializer, ProductSerializer, LandSerializer,
     InputSerializer, ServiceSerializer, VideoSerializer
 )
+import logging
 import requests
+
+logger = logging.getLogger(__name__)
 
 class RegisterView(APIView):
     def post(self, request):
+        logger.debug(f"Register request received: {request.data}")
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
@@ -41,7 +46,7 @@ class RegisterView(APIView):
                     html_message=html_message,
                     fail_silently=False,
                 )
-                
+                logger.info(f"Verification email sent to {user.email}")
                 return Response({
                     'message': 'Verification code sent to your email',
                     'email': user.email,
@@ -49,16 +54,19 @@ class RegisterView(APIView):
                 }, status=status.HTTP_201_CREATED)
                 
             except Exception as e:
+                logger.error(f"Failed to send email to {user.email}: {str(e)}")
                 user.delete()
                 return Response(
                     {'error': f'Failed to send verification email: {str(e)}'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
                 
+        logger.error(f"Serializer errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class VerifyEmailView(APIView):
     def post(self, request):
+        logger.debug(f"Verify email request received: {request.data}")
         serializer = VerifyEmailSerializer(data=request.data)
         if serializer.is_valid():
             email = serializer.validated_data['email']
@@ -85,33 +93,37 @@ class VerifyEmailView(APIView):
                     user.verification_code = None
                     user.save()
                     
-                    # Log the user in
                     login(request, user)
-                    
+                    logger.info(f"Email verified for {user.email}")
                     return Response({
                         'message': 'Email verified successfully',
                         'user': UserSerializer(user).data
                     }, status=status.HTTP_200_OK)
                 
+                logger.error(f"Invalid verification code for {email}")
                 return Response(
                     {'error': 'Invalid verification code'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
                 
             except User.DoesNotExist:
+                logger.error(f"User with email {email} not found")
                 return Response(
                     {'error': 'User with this email does not exist'},
                     status=status.HTTP_404_NOT_FOUND
                 )
                 
+        logger.error(f"Serializer errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class LoginView(APIView):
     def post(self, request):
+        logger.debug(f"Login request received: {request.data}")
         email = request.data.get('email')
         password = request.data.get('password')
         
         if not email or not password:
+            logger.error("Email or password missing")
             return Response(
                 {'error': 'Email and password are required'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -120,18 +132,21 @@ class LoginView(APIView):
         user = authenticate(request, email=email, password=password)
         
         if user is None:
+            logger.error(f"Invalid credentials for {email}")
             return Response(
                 {'error': 'Invalid credentials'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
             
         if not user.is_email_verified:
+            logger.error(f"Unverified email for {email}")
             return Response(
                 {'error': 'Please verify your email first'},
                 status=status.HTTP_403_FORBIDDEN
             )
             
         login(request, user)
+        logger.info(f"Login successful for {email}")
         return Response({
             'message': 'Login successful',
             'user': UserSerializer(user).data
@@ -141,6 +156,7 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
+        logger.info(f"Logout request for {request.user.email}")
         logout(request)
         return Response({
             'message': 'Logged out successfully'
@@ -148,8 +164,10 @@ class LogoutView(APIView):
 
 class ResendVerificationView(APIView):
     def post(self, request):
+        logger.debug(f"Resend verification request: {request.data}")
         email = request.data.get('email')
         if not email:
+            logger.error("Email missing for resend verification")
             return Response(
                 {'error': 'Email is required'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -159,6 +177,7 @@ class ResendVerificationView(APIView):
             user = User.objects.get(email=email)
             
             if user.is_email_verified:
+                logger.error(f"Email already verified for {email}")
                 return Response(
                     {'error': 'Email is already verified'},
                     status=status.HTTP_400_BAD_REQUEST
@@ -181,13 +200,14 @@ class ResendVerificationView(APIView):
                 html_message=html_message,
                 fail_silently=False,
             )
-            
+            logger.info(f"Resent verification email to {email}")
             return Response({
                 'message': 'New verification code sent',
                 'email': user.email
             }, status=status.HTTP_200_OK)
             
         except User.DoesNotExist:
+            logger.error(f"User with email {email} not found")
             return Response(
                 {'error': 'User with this email does not exist'},
                 status=status.HTTP_404_NOT_FOUND
@@ -461,3 +481,21 @@ class VideoYouTubeSearch(APIView):
         if response.status_code == 200:
             return Response(response.json())
         return Response({'error': 'Failed to fetch YouTube videos'}, status=response.status_code)
+    
+
+
+
+# core/views.py
+from django.middleware.csrf import get_token
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+import logging
+
+logger = logging.getLogger(__name__)
+
+class CsrfTokenView(APIView):
+    def get(self, request):
+        logger.debug("Fetching CSRF token")
+        csrf_token = get_token(request)
+        return Response({'csrfToken': csrf_token}, status=status.HTTP_200_OK)
